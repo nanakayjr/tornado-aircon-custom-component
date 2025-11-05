@@ -385,3 +385,290 @@ async def test_hvac_action_mapping(
         }
     )
     assert entity.hvac_action == HVACAction.OFF
+
+
+async def test_preset_mode_normal(entity: TornadoClimateEntity) -> None:
+    """Test preset mode returns 'normal' when power limit is disabled."""
+    assert entity.preset_mode == "normal"
+    assert "normal" in entity.preset_modes
+    assert "eco_30" in entity.preset_modes
+    assert "eco_40" in entity.preset_modes
+    assert "eco_50" in entity.preset_modes
+    assert "eco_60" in entity.preset_modes
+    assert "eco_70" in entity.preset_modes
+    assert "eco_80" in entity.preset_modes
+    assert "eco_90" in entity.preset_modes
+
+
+async def test_preset_mode_eco_30(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test preset mode returns 'eco_30' when power limit is 30%."""
+    updated_device = {
+        **MOCK_DEVICE,
+        "params": {
+            **MOCK_DEVICE["params"],
+            "pwrlimitswitch": 1,
+            "pwrlimit": 30,
+        },
+    }
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "eco_30"
+
+
+async def test_preset_mode_eco_40(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test preset mode returns 'eco_40' when power limit is 40%."""
+    updated_device = {
+        **MOCK_DEVICE,
+        "params": {
+            **MOCK_DEVICE["params"],
+            "pwrlimitswitch": 1,
+            "pwrlimit": 40,
+        },
+    }
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "eco_40"
+
+
+async def test_preset_mode_eco_50(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test preset mode returns 'eco_50' when power limit is 50%."""
+    updated_device = {
+        **MOCK_DEVICE,
+        "params": {
+            **MOCK_DEVICE["params"],
+            "pwrlimitswitch": 1,
+            "pwrlimit": 50,
+        },
+    }
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "eco_50"
+
+
+async def test_preset_mode_eco_60(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test preset mode returns 'eco_60' when power limit is 60%."""
+    updated_device = {
+        **MOCK_DEVICE,
+        "params": {
+            **MOCK_DEVICE["params"],
+            "pwrlimitswitch": 1,
+            "pwrlimit": 60,
+        },
+    }
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "eco_60"
+
+
+async def test_preset_mode_eco_70(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test preset mode returns 'eco_70' when power limit is 70%."""
+    updated_device = {
+        **MOCK_DEVICE,
+        "params": {
+            **MOCK_DEVICE["params"],
+            "pwrlimitswitch": 1,
+            "pwrlimit": 70,
+        },
+    }
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "eco_70"
+
+
+async def test_preset_mode_eco_80(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test preset mode returns 'eco_80' when power limit is 80%."""
+    updated_device = {
+        **MOCK_DEVICE,
+        "params": {
+            **MOCK_DEVICE["params"],
+            "pwrlimitswitch": 1,
+            "pwrlimit": 80,
+        },
+    }
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "eco_80"
+
+
+async def test_preset_mode_eco_90(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test preset mode returns 'eco_90' when power limit is 90%."""
+    updated_device = {
+        **MOCK_DEVICE,
+        "params": {
+            **MOCK_DEVICE["params"],
+            "pwrlimitswitch": 1,
+            "pwrlimit": 90,
+        },
+    }
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "eco_90"
+
+
+async def test_preset_mode_range_detection(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test preset mode range detection (e.g., 32% -> eco_30, 44% -> eco_40)."""
+    # Test 32% maps to eco_30 (range 30-35)
+    updated_device = {
+        **MOCK_DEVICE,
+        "params": {
+            **MOCK_DEVICE["params"],
+            "pwrlimitswitch": 1,
+            "pwrlimit": 32,
+        },
+    }
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "eco_30"
+    
+    # Test 44% maps to eco_40 (range 36-45)
+    updated_device["params"]["pwrlimit"] = 44
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "eco_40"
+    
+    # Test 88% maps to eco_90 (range 86-100)
+    updated_device["params"]["pwrlimit"] = 88
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "eco_90"
+
+
+async def test_set_preset_mode_normal(
+    entity: TornadoClimateEntity, mock_api: MagicMock
+) -> None:
+    """Test setting preset mode to normal."""
+    await entity.async_set_preset_mode("normal")
+    mock_api.set_device_params.assert_called_once_with(
+        MOCK_DEVICE, {"pwrlimitswitch": 0}
+    )
+
+
+async def test_set_preset_mode_eco_30(
+    entity: TornadoClimateEntity, mock_api: MagicMock
+) -> None:
+    """Test setting preset mode to eco_30."""
+    await entity.async_set_preset_mode("eco_30")
+    mock_api.set_device_params.assert_called_once_with(
+        MOCK_DEVICE, {"pwrlimitswitch": 1, "pwrlimit": 30}
+    )
+
+
+async def test_set_preset_mode_eco_40(
+    entity: TornadoClimateEntity, mock_api: MagicMock
+) -> None:
+    """Test setting preset mode to eco_40."""
+    await entity.async_set_preset_mode("eco_40")
+    mock_api.set_device_params.assert_called_once_with(
+        MOCK_DEVICE, {"pwrlimitswitch": 1, "pwrlimit": 40}
+    )
+
+
+async def test_set_preset_mode_eco_50(
+    entity: TornadoClimateEntity, mock_api: MagicMock
+) -> None:
+    """Test setting preset mode to eco_50."""
+    await entity.async_set_preset_mode("eco_50")
+    mock_api.set_device_params.assert_called_once_with(
+        MOCK_DEVICE, {"pwrlimitswitch": 1, "pwrlimit": 50}
+    )
+
+
+async def test_set_preset_mode_eco_60(
+    entity: TornadoClimateEntity, mock_api: MagicMock
+) -> None:
+    """Test setting preset mode to eco_60."""
+    await entity.async_set_preset_mode("eco_60")
+    mock_api.set_device_params.assert_called_once_with(
+        MOCK_DEVICE, {"pwrlimitswitch": 1, "pwrlimit": 60}
+    )
+
+
+async def test_set_preset_mode_eco_70(
+    entity: TornadoClimateEntity, mock_api: MagicMock
+) -> None:
+    """Test setting preset mode to eco_70."""
+    await entity.async_set_preset_mode("eco_70")
+    mock_api.set_device_params.assert_called_once_with(
+        MOCK_DEVICE, {"pwrlimitswitch": 1, "pwrlimit": 70}
+    )
+
+
+async def test_set_preset_mode_eco_80(
+    entity: TornadoClimateEntity, mock_api: MagicMock
+) -> None:
+    """Test setting preset mode to eco_80."""
+    await entity.async_set_preset_mode("eco_80")
+    mock_api.set_device_params.assert_called_once_with(
+        MOCK_DEVICE, {"pwrlimitswitch": 1, "pwrlimit": 80}
+    )
+
+
+async def test_set_preset_mode_eco_90(
+    entity: TornadoClimateEntity, mock_api: MagicMock
+) -> None:
+    """Test setting preset mode to eco_90."""
+    await entity.async_set_preset_mode("eco_90")
+    mock_api.set_device_params.assert_called_once_with(
+        MOCK_DEVICE, {"pwrlimitswitch": 1, "pwrlimit": 90}
+    )
+
+
+async def test_preset_mode_feature_supported(entity: TornadoClimateEntity) -> None:
+    """Test that preset mode feature is supported."""
+    from homeassistant.components.climate import ClimateEntityFeature
+
+    assert (
+        entity.supported_features & ClimateEntityFeature.PRESET_MODE
+        == ClimateEntityFeature.PRESET_MODE
+    )
+
+
+async def test_preset_mode_fallback_on_missing_params(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test preset mode defaults to 'normal' when params are missing."""
+    # Device without pwrlimitswitch and pwrlimit params
+    updated_device = {
+        **MOCK_DEVICE,
+        "params": {
+            "pwr": 1,
+            "ac_mode": 0,
+        },
+    }
+    mock_api.get_devices.return_value = [updated_device]
+    await coordinator.async_refresh()
+    assert entity.preset_mode == "normal"

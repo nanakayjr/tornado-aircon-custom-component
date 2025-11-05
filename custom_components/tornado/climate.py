@@ -56,6 +56,69 @@ FAN_MODE_MAP_REVERSE = {v: k for k, v in FAN_MODE_MAP.items()}
 # Available swing modes
 SWING_MODES = ["off", "vertical", "horizontal", "both"]
 
+# Power-saving preset modes (power limit feature)
+# Expanded to cover 30-90% range in 10% increments
+PRESET_MODE_NORMAL = "normal"
+PRESET_MODE_ECO_30 = "eco_30"
+PRESET_MODE_ECO_40 = "eco_40"
+PRESET_MODE_ECO_50 = "eco_50"
+PRESET_MODE_ECO_60 = "eco_60"
+PRESET_MODE_ECO_70 = "eco_70"
+PRESET_MODE_ECO_80 = "eco_80"
+PRESET_MODE_ECO_90 = "eco_90"
+
+PRESET_MODES = [
+    PRESET_MODE_NORMAL,
+    PRESET_MODE_ECO_30,
+    PRESET_MODE_ECO_40,
+    PRESET_MODE_ECO_50,
+    PRESET_MODE_ECO_60,
+    PRESET_MODE_ECO_70,
+    PRESET_MODE_ECO_80,
+    PRESET_MODE_ECO_90,
+]
+
+# Map preset modes to power limit parameters
+PRESET_MODE_PARAMS = {
+    PRESET_MODE_NORMAL: {"pwrlimitswitch": 0},
+    PRESET_MODE_ECO_30: {"pwrlimitswitch": 1, "pwrlimit": 30},
+    PRESET_MODE_ECO_40: {"pwrlimitswitch": 1, "pwrlimit": 40},
+    PRESET_MODE_ECO_50: {"pwrlimitswitch": 1, "pwrlimit": 50},
+    PRESET_MODE_ECO_60: {"pwrlimitswitch": 1, "pwrlimit": 60},
+    PRESET_MODE_ECO_70: {"pwrlimitswitch": 1, "pwrlimit": 70},
+    PRESET_MODE_ECO_80: {"pwrlimitswitch": 1, "pwrlimit": 80},
+    PRESET_MODE_ECO_90: {"pwrlimitswitch": 1, "pwrlimit": 90},
+}
+
+# Helper function to determine preset mode from power limit value
+def get_preset_mode_from_power_limit(pwrlimitswitch: int, pwrlimit: int) -> str:
+    """Determine preset mode based on power limit value.
+    
+    Uses ranges: 30-35 -> eco_30, 36-45 -> eco_40, 46-55 -> eco_50, etc.
+    If slider value is within ±5 of a preset value, that preset is selected.
+    """
+    if not pwrlimitswitch:
+        return PRESET_MODE_NORMAL
+    
+    # Map ranges to preset modes (centered around preset values)
+    if 30 <= pwrlimit <= 35:
+        return PRESET_MODE_ECO_30
+    elif 36 <= pwrlimit <= 45:
+        return PRESET_MODE_ECO_40
+    elif 46 <= pwrlimit <= 55:
+        return PRESET_MODE_ECO_50
+    elif 56 <= pwrlimit <= 65:
+        return PRESET_MODE_ECO_60
+    elif 66 <= pwrlimit <= 75:
+        return PRESET_MODE_ECO_70
+    elif 76 <= pwrlimit <= 85:
+        return PRESET_MODE_ECO_80
+    elif 86 <= pwrlimit <= 100:
+        return PRESET_MODE_ECO_90
+    else:
+        # Default to normal for any value outside expected ranges
+        return PRESET_MODE_NORMAL
+
 # Parameter validation
 PARAMETER_VALIDATION = {
     "ac_vdir": {"type": int, "range": (0, 1), "required": False},
@@ -91,8 +154,13 @@ async def async_setup_entry(
         _LOGGER.info("Initial login for AuxCloud client")
         await client.login()
 
-    coordinator = AuxCloudDataUpdateCoordinator(hass, client)
-    await coordinator.async_refresh()
+    # Get or create coordinator and store it in entry_data for other platforms
+    if "coordinator" not in entry_data:
+        coordinator = AuxCloudDataUpdateCoordinator(hass, client)
+        await coordinator.async_refresh()
+        entry_data["coordinator"] = coordinator
+    else:
+        coordinator = entry_data["coordinator"]
 
     try:
         devices = await client.get_devices()
@@ -128,7 +196,7 @@ class AuxCloudDataUpdateCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name="AuxCloud",
-            update_interval=timedelta(minutes=1),
+            update_interval=timedelta(seconds=1),  # Reduced from 1 minute to 10 seconds
         )
 
     async def _async_update_data(self) -> dict:
@@ -178,6 +246,7 @@ class TornadoClimateEntity(ClimateEntity):
             | ClimateEntityFeature.SWING_MODE
             | ClimateEntityFeature.TURN_ON
             | ClimateEntityFeature.TURN_OFF
+            | ClimateEntityFeature.PRESET_MODE
         )
 
         # Set available modes and temperature limits
@@ -188,6 +257,8 @@ class TornadoClimateEntity(ClimateEntity):
         self._attr_swing_modes = SWING_MODES
         self._attr_min_temp = 16
         self._attr_max_temp = 32
+        self._attr_preset_modes = PRESET_MODES
+        self._attr_preset_mode = PRESET_MODE_NORMAL
 
         # Initialize other attributes
         self._attr_current_temperature = None
@@ -283,16 +354,24 @@ class TornadoClimateEntity(ClimateEntity):
                 (1, 1): "both",
             }.get((v_dir, h_dir), "off")
 
+            # Update preset mode based on power limit parameters
+            pwrlimitswitch = device_params.get("pwrlimitswitch", 0)
+            pwrlimit = device_params.get("pwrlimit", 0)
+            self._attr_preset_mode = get_preset_mode_from_power_limit(
+                pwrlimitswitch, pwrlimit
+            )
+
             self._attr_available = True
 
             _LOGGER.debug(
-                "Updated state for %s: mode=%s, action=%s, fan=%s, temp=%s, envtemp=%s",
+                "Updated state for %s: mode=%s, action=%s, fan=%s, temp=%s, envtemp=%s, preset=%s",
                 self._device_id,
                 self._attr_hvac_mode,
                 self._attr_hvac_action,
                 self._attr_fan_mode,
                 self._attr_target_temperature,
                 self._attr_current_temperature,
+                self._attr_preset_mode,
             )
 
         except Exception:
@@ -363,6 +442,13 @@ class TornadoClimateEntity(ClimateEntity):
             "ac_vdir": 1 if swing_mode in ["vertical", "both"] else 0,
             "ac_hdir": 1 if swing_mode in ["horizontal", "both"] else 0,
         }
+        await self._set_device_params(params)
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set new target preset mode."""
+        device_id = self._device.get("endpointId", "Unknown")
+        _LOGGER.info("Setting preset mode to %s for %s", preset_mode, device_id)
+        params = PRESET_MODE_PARAMS.get(preset_mode, PRESET_MODE_PARAMS[PRESET_MODE_NORMAL])
         await self._set_device_params(params)
 
     async def async_turn_on(self) -> None:

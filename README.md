@@ -39,6 +39,129 @@ To set up the Tornado Air Conditioner integration in Home Assistant:
 - Control power, mode, temperature, and fan speed of your Tornado Aircon units.
 - Monitor current temperature, humidity, and operational status.
 - Automate your air conditioning based on Home Assistant automations.
+- **Power-saving preset modes**: Control energy consumption with built-in power limit presets:
+  - **Normal**: Full power operation (default)
+  - **Eco 30%**: Limits power consumption to 30% for maximum energy savings
+  - **Eco 50%**: Limits power consumption to 50% for balanced comfort and efficiency
+  - **Eco 70%**: Limits power consumption to 70% for minimal energy reduction
+- **Separate entity controls**: Each AC device creates multiple entities for flexible automation:
+  - **Climate Entity**: Main AC control with all features
+  - **Temperature Sensors**: Room and target temperature as separate sensors
+  - **Power Limit Slider**: Adjust power consumption from 30-100% with a slider (100% = no limit)
+  - **HVAC Mode Selector**: Change operating mode (cool, heat, dry, fan_only, auto, off)
+  - **Eco Mode Selector**: Quick access to preset power-saving modes
+
+### Available Entities
+
+For each Tornado AC device, the following entities are created:
+
+#### Climate Entity
+- **Entity ID**: `climate.tornado_ac_[device_name]`
+- Full control over all AC functions
+- Supports: power, mode, temperature, fan speed, swing, and preset modes
+
+#### Sensor Entities
+- **Room Temperature**: `sensor.tornado_ac_[device_name]_room_temperature`
+  - Current room temperature reading from the AC unit
+- **Target Temperature**: `sensor.tornado_ac_[device_name]_target_temperature`
+  - Current temperature setpoint
+
+#### Number Entity
+- **Power Limit**: `number.tornado_ac_[device_name]_power_limit`
+  - Slider control for power consumption (30-100%)
+  - Set to 100% to disable power limiting
+  - Works in conjunction with eco mode selector
+
+#### Select Entities
+- **HVAC Mode**: `select.tornado_ac_[device_name]_mode`
+  - Options: off, cool, heat, dry, fan_only, auto
+- **Eco Mode**: `select.tornado_ac_[device_name]_eco_mode`
+  - Options: normal, eco_30, eco_50, eco_70
+
+### Using Preset Modes
+
+Preset modes allow you to control the power consumption of your air conditioner:
+
+1. In the Home Assistant UI, select your Tornado AC device
+2. Look for the "Preset" dropdown (available in the climate card)
+3. Choose from:
+   - **normal**: Full power operation (no power limit)
+   - **eco_30**: Limits maximum power to 30% (highest energy savings)
+   - **eco_50**: Limits maximum power to 50% (balanced mode)
+   - **eco_70**: Limits maximum power to 70% (moderate savings)
+
+You can also control preset modes via automations and scripts:
+
+```yaml
+# Example automation to set eco mode at night
+automation:
+  - alias: "AC Eco Mode at Night"
+    trigger:
+      - platform: time
+        at: "22:00:00"
+    action:
+      - service: climate.set_preset_mode
+        target:
+          entity_id: climate.tornado_ac_bedroom
+        data:
+          preset_mode: "eco_50"
+```
+
+### Using the Power Limit Slider
+
+The power limit slider provides fine-grained control over power consumption:
+
+```yaml
+# Example: Set power limit to 60%
+service: number.set_value
+target:
+  entity_id: number.tornado_ac_bedroom_power_limit
+data:
+  value: 60
+```
+
+### Using Separate Selectors
+
+Control HVAC mode and eco mode independently:
+
+```yaml
+# Example: Switch to cooling mode
+service: select.select_option
+target:
+  entity_id: select.tornado_ac_bedroom_mode
+data:
+  option: "cool"
+
+# Example: Enable eco mode
+service: select.select_option
+target:
+  entity_id: select.tornado_ac_bedroom_eco_mode
+data:
+  option: "eco_50"
+```
+
+### Using Temperature Sensors in Automations
+
+```yaml
+# Example: Turn on AC when room gets too hot
+automation:
+  - alias: "Auto Cool When Hot"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.tornado_ac_bedroom_room_temperature
+        above: 26
+    action:
+      - service: climate.turn_on
+        target:
+          entity_id: climate.tornado_ac_bedroom
+      - service: climate.set_hvac_mode
+        target:
+          entity_id: climate.tornado_ac_bedroom
+        data:
+          hvac_mode: "cool"
+```
+
+**Note**: Not all Tornado AC models may support the power limit feature. If your device doesn't support this feature, the preset modes and power limit slider will still be available but may not have any effect.
 
 ## Usage
 
