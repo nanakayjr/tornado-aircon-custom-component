@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import aiohttp
 from async_lru import alru_cache
 from tenacity import (
+    RetryError,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
@@ -656,11 +657,24 @@ class AuxCloudAPI:
 
         Only the power flag is polled first. A unit that is off keeps its last known
         params (1 request); the full data is fetched only when it is on or unknown.
-        A failed power query raises so the coordinator backs off.
+        If the cloud stays busy after retries, the last known params are reused; with
+        no previous data the error is raised so the coordinator backs off.
         """
         endpoint_id = dev["endpointId"]
         last = self._last_params.get(endpoint_id)
-        power = await self.get_device_params(dev, ["pwr"])
+        try:
+            power = await self.get_device_params(dev, ["pwr"])
+        except (RetryError, AuxCloudApiError) as ex:
+            if last is None:
+                raise
+            _LOGGER.warning(
+                "Cloud busy for %s, keeping last known state: %s", endpoint_id, ex
+            )
+            dev["params"] = dict(last)
+            cached = self._slow_cache.get(endpoint_id)
+            if cached and "state" in cached[1]:
+                dev["state"] = cached[1]["state"]
+            return dev
         if last is not None and not power.get("pwr"):
             dev["params"] = {**last, "pwr": 0}
             cached = self._slow_cache.get(endpoint_id)
