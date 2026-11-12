@@ -998,7 +998,7 @@ class AuxCloudAPI:
                 }
 
             msg = f"Failed to {act} device parameters: {response_text}"
-            raise ValueError(msg)
+            raise AuxCloudApiError(msg)
 
     def _is_ambient_mode(self, params: list[str]) -> bool:
         """
