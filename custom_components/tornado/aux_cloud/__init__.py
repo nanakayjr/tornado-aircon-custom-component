@@ -501,6 +501,11 @@ class AuxCloudAPI:
                 self._shared_cache[family_id] = shared_devices
                 all_devices.extend(shared_devices or [])
 
+        except RetryError as ex:
+            cause = ex.last_attempt.exception()
+            _LOGGER.warning("Error getting devices after retries: %s", cause)
+            msg = f"Cloud request failed after retries: {cause}"
+            raise AuxCloudApiError(msg) from cause
         except Exception:
             _LOGGER.exception("Error getting devices")
             raise
