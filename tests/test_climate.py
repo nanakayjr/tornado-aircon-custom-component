@@ -100,7 +100,7 @@ async def test_climate_update(entity: TornadoClimateEntity) -> None:
     assert entity.fan_mode == "low"
     assert entity.target_temperature == TARGET_TEMP
     assert entity.current_temperature == CURRENT_TEMP
-    assert entity.swing_mode == "vertical"
+    assert entity.swing_mode == "on"
     assert entity.available is True
 
 
@@ -196,27 +196,18 @@ async def test_set_swing_mode(
     entity: TornadoClimateEntity, mock_api: MagicMock
 ) -> None:
     """Test setting swing mode."""
-    # Test vertical mode
-    await entity.async_set_swing_mode("vertical")
-    mock_api.set_device_params.assert_called_once_with(
-        MOCK_DEVICE, {"ac_vdir": 1, "ac_hdir": 0}
-    )
+    await entity.async_set_swing_mode("on")
+    mock_api.set_device_params.assert_called_once_with(MOCK_DEVICE, {"ac_vdir": 1})
 
     mock_api.set_device_params.reset_mock()
 
-    # Test horizontal mode
-    await entity.async_set_swing_mode("horizontal")
-    mock_api.set_device_params.assert_called_once_with(
-        MOCK_DEVICE, {"ac_vdir": 0, "ac_hdir": 1}
-    )
+    await entity.async_set_swing_horizontal_mode("on")
+    mock_api.set_device_params.assert_called_once_with(MOCK_DEVICE, {"ac_hdir": 1})
 
     mock_api.set_device_params.reset_mock()
 
-    # Test both mode
-    await entity.async_set_swing_mode("both")
-    mock_api.set_device_params.assert_called_once_with(
-        MOCK_DEVICE, {"ac_vdir": 1, "ac_hdir": 1}
-    )
+    await entity.async_set_swing_horizontal_mode("off")
+    mock_api.set_device_params.assert_called_once_with(MOCK_DEVICE, {"ac_hdir": 0})
 
 
 async def test_turn_on(entity: TornadoClimateEntity, mock_api: MagicMock) -> None:

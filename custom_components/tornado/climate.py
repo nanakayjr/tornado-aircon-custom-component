@@ -11,6 +11,8 @@ from homeassistant.components.climate import (
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
+    SWING_OFF,
+    SWING_ON,
 )
 from homeassistant.const import (
     ATTR_TEMPERATURE,
@@ -52,8 +54,8 @@ FAN_MODE_MAP = {
 
 FAN_MODE_MAP_REVERSE = {v: k for k, v in FAN_MODE_MAP.items()}
 
-# Available swing modes
-SWING_MODES = ["off", "vertical", "horizontal", "both"]
+# Vertical (ac_vdir) and horizontal (ac_hdir) swing are controlled independently
+SWING_MODES = [SWING_OFF, SWING_ON]
 
 # Power-saving preset modes (power limit feature)
 # Expanded to cover 30-90% range in 10% increments
@@ -188,6 +190,7 @@ class TornadoClimateEntity(CoordinatorEntity, ClimateEntity):
             ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.FAN_MODE
             | ClimateEntityFeature.SWING_MODE
+            | ClimateEntityFeature.SWING_HORIZONTAL_MODE
             | ClimateEntityFeature.TURN_ON
             | ClimateEntityFeature.TURN_OFF
             | ClimateEntityFeature.PRESET_MODE
@@ -199,6 +202,7 @@ class TornadoClimateEntity(CoordinatorEntity, ClimateEntity):
         self._attr_fan_modes = list(FAN_MODE_MAP.values())
         self._attr_fan_mode = FAN_MODE_MAP[0]
         self._attr_swing_modes = SWING_MODES
+        self._attr_swing_horizontal_modes = SWING_MODES
         self._attr_min_temp = 16
         self._attr_max_temp = 32
         self._attr_preset_modes = PRESET_MODES
@@ -209,6 +213,7 @@ class TornadoClimateEntity(CoordinatorEntity, ClimateEntity):
         self._attr_target_temperature = None
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_swing_mode = None
+        self._attr_swing_horizontal_mode = None
         self._attr_hvac_action = HVACAction.OFF
         self._attr_available = False
         # Create entity description
@@ -285,15 +290,12 @@ class TornadoClimateEntity(CoordinatorEntity, ClimateEntity):
             )
             self._attr_target_temperature = device_params.get("temp", 0) / 10
             self._attr_current_temperature = device_params.get("envtemp", 0) / 10
-            # Update swing mode based on vertical and horizontal direction
-            v_dir = device_params.get("ac_vdir", 0)
-            h_dir = device_params.get("ac_hdir", 0)
-            self._attr_swing_mode = {
-                (0, 0): "off",
-                (1, 0): "vertical",
-                (0, 1): "horizontal",
-                (1, 1): "both",
-            }.get((v_dir, h_dir), "off")
+            self._attr_swing_mode = (
+                SWING_ON if device_params.get("ac_vdir", 0) else SWING_OFF
+            )
+            self._attr_swing_horizontal_mode = (
+                SWING_ON if device_params.get("ac_hdir", 0) else SWING_OFF
+            )
 
             # Update preset mode based on power limit parameters
             pwrlimitswitch = device_params.get("pwrlimitswitch", 0)
@@ -377,11 +379,15 @@ class TornadoClimateEntity(CoordinatorEntity, ClimateEntity):
         """Set new target swing mode."""
         device_id = self._device.get("endpointId", "Unknown")
         _LOGGER.info("Setting swing mode to %s for %s", swing_mode, device_id)
-        params = {
-            "ac_vdir": 1 if swing_mode in ["vertical", "both"] else 0,
-            "ac_hdir": 1 if swing_mode in ["horizontal", "both"] else 0,
-        }
-        await self._set_device_params(params)
+        await self._set_device_params({"ac_vdir": int(swing_mode == SWING_ON)})
+
+    async def async_set_swing_horizontal_mode(self, swing_horizontal_mode: str) -> None:
+        """Set new horizontal swing mode."""
+        device_id = self._device.get("endpointId", "Unknown")
+        _LOGGER.info(
+            "Setting horizontal swing to %s for %s", swing_horizontal_mode, device_id
+        )
+        await self._set_device_params({"ac_hdir": int(swing_horizontal_mode == SWING_ON)})
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new target preset mode."""

@@ -137,21 +137,24 @@ class AuxCloudAPI:
         """Get or create shared connector."""
         async with cls._shared_connector_lock:
             if cls._shared_connector is None or cls._shared_connector.closed:
-                # force_close=True: never reuse a pooled connection across
-                # requests. AUX Cloud's own idle-connection timeout is shorter
-                # than the poll interval (~1-4 min), so a kept-alive connection
-                # is always stale by the next poll — reusing it risks an
-                # instantly-failing "poisoned" connection (see #29, made far
-                # more likely by HA core 2026.7's aiohttp 3.13.5->3.14.1 bump).
-                # list_families()/_has_shared_devices() are cached for an
-                # hour, so there's normally only one live request per poll
-                # anyway — keep-alive reuse buys nothing here, just risk.
+                # Default force_close=True: never reuse a pooled connection. AUX
+                # Cloud's idle-connection timeout is shorter than the poll interval,
+                # so a connection kept across polls is stale and can be "poisoned"
+                # (see #29). With the opt-in keep-alive mode, connections are kept
+                # only KEEPALIVE_TIMEOUT seconds - long enough to be reused by the
+                # requests of one refresh burst, never long enough to go stale
+                # between polls.
+                options: dict[str, Any] = (
+                    {"keepalive_timeout": KEEPALIVE_TIMEOUT}
+                    if cls._shared_keepalive
+                    else {"force_close": True}
+                )
                 cls._shared_connector = aiohttp.TCPConnector(
                     limit=10,
                     ttl_dns_cache=300,  # Cache DNS results for 5 minutes
                     use_dns_cache=True,
                     family=socket.AF_INET,
-                    force_close=True,
+                    **options,
                 )
                 _LOGGER.debug(
                     "Created new connector %s (keepalive=%s)",
