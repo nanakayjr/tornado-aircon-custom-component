@@ -11,7 +11,34 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
 
 from .aux_cloud import AuxCloudAPI
-from .const import CONF_REGION, DOMAIN, REGIONS
+from .const import (
+    CONF_AMBIENT_INTERVAL,
+    CONF_BOOST_DURATION,
+    CONF_BOOST_ENABLED,
+    CONF_BOOST_INTERVAL,
+    CONF_KEEPALIVE,
+    CONF_LOW_DATA_MODE,
+    CONF_REGION,
+    CONF_SCAN_INTERVAL,
+    CONF_SHARED_EVERY,
+    DEFAULT_AMBIENT_INTERVAL,
+    DEFAULT_BOOST_DURATION,
+    DEFAULT_BOOST_ENABLED,
+    DEFAULT_BOOST_INTERVAL,
+    DEFAULT_KEEPALIVE,
+    DEFAULT_SCAN_INTERVAL,
+    DEFAULT_SHARED_EVERY,
+    DOMAIN,
+    MAX_AMBIENT_INTERVAL,
+    MAX_BOOST_DURATION,
+    MAX_BOOST_INTERVAL,
+    MAX_SCAN_INTERVAL,
+    MAX_SHARED_EVERY,
+    MIN_BOOST_DURATION,
+    MIN_BOOST_INTERVAL,
+    MIN_SCAN_INTERVAL,
+    REGIONS,
+)
 
 if TYPE_CHECKING:
     from homeassistant.data_entry_flow import FlowResult
@@ -103,15 +130,86 @@ class TornadoOptionsFlow(config_entries.OptionsFlow):
                 _LOGGER.exception("Failed to connect to Tornado AC")
                 errors["base"] = "cannot_connect"
 
+        options = self.config_entry.options
+        # Re-show what the user just typed when validation failed
+        current = {**options, **(user_input or {})}
+
+        def _interval(key: str, default: int, low: int, high: int) -> tuple[Any, Any]:
+            return (
+                vol.Optional(key, default=current.get(key, default)),
+                vol.All(vol.Coerce(int), vol.Range(min=low, max=high)),
+            )
+
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_REGION,
-                        default=self.config_entry.data.get(CONF_REGION, "eu"),
-                    ): vol.In(REGIONS),
-                }
+                dict(
+                    [
+                        (
+                            vol.Required(
+                                CONF_REGION,
+                                default=current.get(
+                                    CONF_REGION,
+                                    self.config_entry.data.get(CONF_REGION, "eu"),
+                                ),
+                            ),
+                            vol.In(REGIONS),
+                        ),
+                        (
+                            vol.Optional(
+                                CONF_LOW_DATA_MODE,
+                                default=current.get(CONF_LOW_DATA_MODE, False),
+                            ),
+                            bool,
+                        ),
+                        _interval(
+                            CONF_SCAN_INTERVAL,
+                            DEFAULT_SCAN_INTERVAL,
+                            MIN_SCAN_INTERVAL,
+                            MAX_SCAN_INTERVAL,
+                        ),
+                        (
+                            vol.Optional(
+                                CONF_BOOST_ENABLED,
+                                default=current.get(
+                                    CONF_BOOST_ENABLED, DEFAULT_BOOST_ENABLED
+                                ),
+                            ),
+                            bool,
+                        ),
+                        _interval(
+                            CONF_BOOST_INTERVAL,
+                            DEFAULT_BOOST_INTERVAL,
+                            MIN_BOOST_INTERVAL,
+                            MAX_BOOST_INTERVAL,
+                        ),
+                        _interval(
+                            CONF_BOOST_DURATION,
+                            DEFAULT_BOOST_DURATION,
+                            MIN_BOOST_DURATION,
+                            MAX_BOOST_DURATION,
+                        ),
+                        _interval(
+                            CONF_AMBIENT_INTERVAL,
+                            DEFAULT_AMBIENT_INTERVAL,
+                            0,
+                            MAX_AMBIENT_INTERVAL,
+                        ),
+                        (
+                            vol.Optional(
+                                CONF_KEEPALIVE,
+                                default=current.get(CONF_KEEPALIVE, DEFAULT_KEEPALIVE),
+                            ),
+                            bool,
+                        ),
+                        _interval(
+                            CONF_SHARED_EVERY,
+                            DEFAULT_SHARED_EVERY,
+                            1,
+                            MAX_SHARED_EVERY,
+                        ),
+                    ]
+                )
             ),
             errors=errors,
         )

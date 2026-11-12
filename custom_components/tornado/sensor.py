@@ -3,26 +3,84 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
+    SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfInformation, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import datetime
+
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from .climate import AuxCloudDataUpdateCoordinator
+    from .usage import CloudUsage
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, kw_only=True)
+class TornadoUsageDescription(SensorEntityDescription):
+    """Describes a cloud-usage diagnostic sensor."""
+
+    value_fn: Callable[[CloudUsage], float | int | None]
+    # Counters reset at local midnight; the others are plain measurements
+    resets_daily: bool = False
+
+
+USAGE_SENSORS: tuple[TornadoUsageDescription, ...] = (
+    TornadoUsageDescription(
+        key="requests_today",
+        translation_key="requests_today",
+        native_unit_of_measurement="requests",
+        state_class=SensorStateClass.TOTAL,
+        value_fn=lambda usage: usage.requests_today,
+        resets_daily=True,
+    ),
+    TornadoUsageDescription(
+        key="data_today",
+        translation_key="data_today",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.MEGABYTES,
+        suggested_display_precision=2,
+        state_class=SensorStateClass.TOTAL,
+        # Approximate: request/response bytes + an estimate per TLS handshake
+        value_fn=lambda usage: round(usage.bytes_today / 1_000_000, 3),
+        resets_daily=True,
+    ),
+    TornadoUsageDescription(
+        key="requests_per_refresh",
+        translation_key="requests_per_refresh",
+        native_unit_of_measurement="requests",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda usage: usage.requests_last_refresh,
+    ),
+    TornadoUsageDescription(
+        key="last_refresh_duration",
+        translation_key="last_refresh_duration",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        suggested_display_precision=1,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda usage: (
+            None
+            if usage.last_refresh_duration is None
+            else round(usage.last_refresh_duration, 2)
+        ),
+    ),
+)
 
 
 async def async_setup_entry(
@@ -32,45 +90,62 @@ async def async_setup_entry(
 ) -> None:
     """Set up Tornado sensor platform."""
     entry_data = hass.data[DOMAIN][config_entry.entry_id]
-    client = entry_data["client"]
-    
-    # Import here to avoid circular dependency
-    from .climate import AuxCloudDataUpdateCoordinator
-    
-    # Get or create coordinator
-    if "coordinator" not in entry_data:
-        coordinator = AuxCloudDataUpdateCoordinator(hass, client)
-        await coordinator.async_config_entry_first_refresh()
-        entry_data["coordinator"] = coordinator
-    else:
-        coordinator = entry_data["coordinator"]
+    coordinator = entry_data["coordinator"]
 
-    try:
-        devices = await client.get_devices()
-        entities = []
+    entities: list[SensorEntity] = [
+        TornadoUsageSensor(coordinator, config_entry.entry_id, description)
+        for description in USAGE_SENSORS
+    ]
 
-        for device in devices:
-            # Room temperature sensor
-            entities.append(
-                TornadoTemperatureSensor(
-                    coordinator,
-                    device,
-                    "current",
-                )
-            )
-            # Target temperature sensor
-            entities.append(
-                TornadoTemperatureSensor(
-                    coordinator,
-                    device,
-                    "target",
-                )
-            )
+    # Devices come from the coordinator's first refresh - no extra cloud request
+    for device in (coordinator.data or {}).values():
+        # Room temperature sensor
+        entities.append(TornadoTemperatureSensor(coordinator, device, "current"))
+        # Target temperature sensor
+        entities.append(TornadoTemperatureSensor(coordinator, device, "target"))
 
-        async_add_entities(entities)
+    async_add_entities(entities)
 
-    except Exception:
-        _LOGGER.exception("Error setting up Tornado sensor platform")
+
+class TornadoUsageSensor(CoordinatorEntity, SensorEntity):
+    """Measured cloud traffic of this config entry (diagnostic)."""
+
+    entity_description: TornadoUsageDescription
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: AuxCloudDataUpdateCoordinator,
+        entry_id: str,
+        description: TornadoUsageDescription,
+    ) -> None:
+        """Initialize the usage sensor."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._usage: CloudUsage = coordinator.api.usage
+        self._attr_unique_id = f"{entry_id}_{description.key}"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry_id)},
+            "name": "Tornado AC cloud connection",
+            "manufacturer": "Tornado",
+            "model": "AUX Cloud",
+        }
+
+    @property
+    def native_value(self) -> float | int | None:
+        """Return the measured value."""
+        return self.entity_description.value_fn(self._usage)
+
+    @property
+    def last_reset(self) -> datetime | None:
+        """Daily counters restart at local midnight (keeps long-term statistics correct)."""
+        return self._usage.last_reset if self.entity_description.resets_daily else None
+
+    @property
+    def available(self) -> bool:
+        """Usage is known even while the cloud is failing."""
+        return True
 
 
 class TornadoTemperatureSensor(CoordinatorEntity, SensorEntity):
@@ -103,6 +178,11 @@ class TornadoTemperatureSensor(CoordinatorEntity, SensorEntity):
             "manufacturer": "Tornado",
             "model": "AUX Cloud",
         }
+
+    async def async_added_to_hass(self) -> None:
+        """Show the current state at once instead of waiting for the next poll."""
+        await super().async_added_to_hass()
+        self._handle_coordinator_update()
 
     @property
     def _device(self) -> dict | None:

@@ -34,5 +34,16 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tornado AC options",
+        "data": {
+          "region": "Region",
+          "scan_interval": "Update interval (seconds) – lower values use more internet data"
+        }
+      }
+    }
   }
 }

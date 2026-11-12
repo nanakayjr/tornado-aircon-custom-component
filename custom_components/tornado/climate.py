@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
@@ -18,10 +17,10 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .aux_cloud import AuxCloudAPI
 from .const import DOMAIN
+from .coordinator import AuxCloudDataUpdateCoordinator
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -145,78 +144,22 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Tornado climate platform."""
-    # Get the client from the domain data
+    # The coordinator and logged-in client are created once in __init__.py
     entry_data = hass.data[DOMAIN][config_entry.entry_id]
-    client = entry_data["client"]
+    coordinator = entry_data["coordinator"]
 
-    # Ensure client is logged in before creating coordinator
-    if not hasattr(client, "loginsession") or not client.loginsession:
-        _LOGGER.info("Initial login for AuxCloud client")
-        await client.login()
-
-    # Get or create coordinator and store it in entry_data for other platforms
-    if "coordinator" not in entry_data:
-        coordinator = AuxCloudDataUpdateCoordinator(hass, client)
-        await coordinator.async_refresh()
-        entry_data["coordinator"] = coordinator
-    else:
-        coordinator = entry_data["coordinator"]
-
-    try:
-        devices = await client.get_devices()
-        entities = []
-
-        for device in devices:
-            try:
-                entities.append(
-                    TornadoClimateEntity(
-                        hass,
-                        coordinator,
-                        device,
-                    )
-                )
-            except Exception:
-                _LOGGER.exception(
-                    "Error setting up device %s", device.get("endpointId")
-                )
-
-        async_add_entities(entities)
-
-    except Exception:
-        _LOGGER.exception("Error setting up Tornado climate platform")
-
-
-class AuxCloudDataUpdateCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching AuxCloud data."""
-
-    def __init__(self, hass: HomeAssistant, api: AuxCloudAPI) -> None:
-        """Initialize the coordinator."""
-        self.api = api
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="AuxCloud",
-            update_interval=timedelta(seconds=1),  # Reduced from 1 minute to 10 seconds
-        )
-
-    async def _async_update_data(self) -> dict:
-        """Fetch data from AuxCloud."""
+    # Devices come from the coordinator's first refresh - no extra cloud request
+    entities = []
+    for device in (coordinator.data or {}).values():
         try:
-            # First check if we need to re-authenticate
-            if not hasattr(self.api, "loginsession") or not self.api.loginsession:
-                _LOGGER.info("No valid login session, attempting to login")
-                await self.api.login()
+            entities.append(TornadoClimateEntity(hass, coordinator, device))
+        except Exception:
+            _LOGGER.exception("Error setting up device %s", device.get("endpointId"))
 
-            devices = await self.api.get_devices()
-            _LOGGER.debug("Coordinator fetched data: %s", devices)
-            return {device["endpointId"]: device for device in devices}
-        except Exception as err:
-            _LOGGER.exception("Error fetching data")
-            error_msg = f"Error fetching data: {err}"
-            raise UpdateFailed(error_msg) from err
+    async_add_entities(entities)
 
 
-class TornadoClimateEntity(ClimateEntity):
+class TornadoClimateEntity(CoordinatorEntity, ClimateEntity):
     """Representation of a Tornado AC Climate device."""
 
     def __init__(
@@ -227,7 +170,8 @@ class TornadoClimateEntity(ClimateEntity):
         *_: Any,  # Using *_ to ignore additional arguments like config_entry
     ) -> None:
         """Initialize the climate device."""
-        super().__init__()
+        # CoordinatorEntity => should_poll is False; state only changes via the coordinator
+        super().__init__(coordinator)
         self.hass = hass
         self._coordinator = coordinator
         self._client = coordinator.api
@@ -273,9 +217,6 @@ class TornadoClimateEntity(ClimateEntity):
             name=f"Tornado AC {device.get('friendlyName')}",
             translation_key=DOMAIN,
         )
-
-        # Add coordinator listener
-        coordinator.async_add_listener(self._handle_coordinator_update)
         _LOGGER.info("Entity initialized for device %s", self._device_id)
 
     @property
@@ -380,10 +321,6 @@ class TornadoClimateEntity(ClimateEntity):
 
         self.async_write_ha_state()
 
-    async def async_update(self) -> None:
-        """Update the entity."""
-        await self._coordinator.async_request_refresh()
-
     async def _set_device_params(self, params: dict) -> None:
         """Set device parameters and handle any errors."""
         try:
@@ -393,6 +330,8 @@ class TornadoClimateEntity(ClimateEntity):
                 "Error setting parameters for %s",
                 self._device.get("endpointId", "Unknown"),
             )
+        else:
+            self._coordinator.apply_optimistic(self._device_id, params)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
@@ -454,34 +393,9 @@ class TornadoClimateEntity(ClimateEntity):
     async def async_turn_on(self) -> None:
         """Turn the device on."""
         _LOGGER.info("Turning on %s", self._device.get("endpointId", "Unknown"))
-        try:
-            await self._client.set_device_params(self._device, {"pwr": 1})
-        except Exception:
-            _LOGGER.exception(
-                "Error turning on %s", self._device.get("endpointId", "Unknown")
-            )
+        await self._set_device_params({"pwr": 1})
 
     async def async_turn_off(self) -> None:
         """Turn the device off."""
         _LOGGER.info("Turning off %s", self._device.get("endpointId", "Unknown"))
-        try:
-            await self._client.set_device_params(self._device, {"pwr": 0})
-        except Exception:
-            _LOGGER.exception(
-                "Error turning off %s", self._device.get("endpointId", "Unknown")
-            )
-
-
-async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Unload Tornado climate platform."""
-    entry_data = hass.data[DOMAIN].get(config_entry.entry_id, {})
-    client = entry_data.get("client")
-
-    if client:
-        await client.cleanup()
-        # Cleanup shared resources when the last client is removed
-        if len(hass.data[DOMAIN]) == 1:
-            await AuxCloudAPI.cleanup_shared_resources()
-        _LOGGER.info("Cleaned up AuxCloud client and resources")
-
-    return True
+        await self._set_device_params({"pwr": 0})

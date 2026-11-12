@@ -28,36 +28,13 @@ async def async_setup_entry(
     """Set up Tornado number platform."""
     entry_data = hass.data[DOMAIN][config_entry.entry_id]
     client = entry_data["client"]
-    
-    # Import here to avoid circular dependency
-    from .climate import AuxCloudDataUpdateCoordinator
-    
-    # Get or create coordinator
-    if "coordinator" not in entry_data:
-        coordinator = AuxCloudDataUpdateCoordinator(hass, client)
-        await coordinator.async_config_entry_first_refresh()
-        entry_data["coordinator"] = coordinator
-    else:
-        coordinator = entry_data["coordinator"]
+    coordinator = entry_data["coordinator"]
 
-    try:
-        devices = await client.get_devices()
-        entities = []
-
-        for device in devices:
-            # Power limit slider
-            entities.append(
-                TornadoPowerLimitNumber(
-                    coordinator,
-                    device,
-                    client,
-                )
-            )
-
-        async_add_entities(entities)
-
-    except Exception:
-        _LOGGER.exception("Error setting up Tornado number platform")
+    # Devices come from the coordinator's first refresh - no extra cloud request
+    async_add_entities(
+        TornadoPowerLimitNumber(coordinator, device, client)
+        for device in (coordinator.data or {}).values()
+    )
 
 
 class TornadoPowerLimitNumber(CoordinatorEntity, NumberEntity):
@@ -87,6 +64,11 @@ class TornadoPowerLimitNumber(CoordinatorEntity, NumberEntity):
             "manufacturer": "Tornado",
             "model": "AUX Cloud",
         }
+
+    async def async_added_to_hass(self) -> None:
+        """Show the current state at once instead of waiting for the next poll."""
+        await super().async_added_to_hass()
+        self._handle_coordinator_update()
 
     @property
     def _device(self) -> dict | None:
@@ -138,15 +120,9 @@ class TornadoPowerLimitNumber(CoordinatorEntity, NumberEntity):
             
             # Send to device
             await self._client.set_device_params(self._device, params)
-            
-            # Immediately update coordinator data for instant UI feedback
-            if self.coordinator.data and self._device_id in self.coordinator.data:
-                device_data = self.coordinator.data[self._device_id]
-                if "params" in device_data:
-                    device_data["params"].update(params)
-                    # Trigger coordinator update to notify all entities
-                    self.coordinator.async_set_updated_data(self.coordinator.data)
-            
+
+            # Instant UI feedback for all entities, no cloud request
+            self.coordinator.apply_optimistic(self._device_id, params)
         except Exception:
             _LOGGER.exception(
                 "Error setting power limit for %s",

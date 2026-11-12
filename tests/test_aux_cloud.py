@@ -910,7 +910,7 @@ async def test_shared_devices_caching_complete(
         patch.object(
             api,
             "get_device_params",
-            AsyncMock(side_effect=[params_response, ambient_response] * 4),
+            AsyncMock(side_effect=[{"pwr": 1}, params_response, ambient_response] * 4),
         ),
     ):
         regular_devices = await api.list_devices("family1", shared=False)
@@ -990,7 +990,7 @@ async def test_shared_devices_caching_no_shared_devices(
                 patch.object(
                     api,
                     "get_device_params",
-                    AsyncMock(side_effect=[params_response, ambient_response] * 2),
+                    AsyncMock(side_effect=[{"pwr": 1}, params_response, ambient_response] * 2),
                 ),
             ):
                 regular_devices = await api.list_devices("family1", shared=False)
