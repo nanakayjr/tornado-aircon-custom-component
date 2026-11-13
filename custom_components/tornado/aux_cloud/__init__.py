@@ -228,6 +228,7 @@ class AuxCloudAPI:
         self._shared_cache: dict[str, list[dict[str, Any]]] = {}
         # endpointId -> last known params; reused while the unit is off
         self._last_params: dict[str, dict[str, Any]] = {}
+        self._no_pwr_query: set[str] = set()
         # Shared devices already fetched by the has-shared check this cycle
         self._prefetched_shared: dict[str, list[dict[str, Any]]] = {}
         self._last_login = 0.0
@@ -668,16 +669,18 @@ class AuxCloudAPI:
         """
         endpoint_id = dev["endpointId"]
         last = self._last_params.get(endpoint_id)
-        power: dict[str, Any] | None
-        try:
-            power = await self.get_device_params(dev, ["pwr"])
-        except (RetryError, AuxCloudApiError) as ex:
-            _LOGGER.warning(
-                "Power-only query failed for %s, trying the full query: %s",
-                endpoint_id,
-                ex,
-            )
-            power = None
+        power: dict[str, Any] | None = None
+        power_failed = False
+        if endpoint_id not in self._no_pwr_query:
+            try:
+                power = await self.get_device_params(dev, ["pwr"])
+            except (RetryError, AuxCloudApiError) as ex:
+                _LOGGER.warning(
+                    "Power-only query failed for %s, trying the full query: %s",
+                    endpoint_id,
+                    ex,
+                )
+                power_failed = True
         if power is not None and last is not None and not power.get("pwr"):
             dev["params"] = {**last, "pwr": 0}
             cached = self._slow_cache.get(endpoint_id)
@@ -698,6 +701,9 @@ class AuxCloudAPI:
             return dev
         if "params" in dev:
             self._last_params[endpoint_id] = dict(dev["params"])
+        if power_failed:
+            # Full query works, so skip the failing power-only query from now on
+            self._no_pwr_query.add(endpoint_id)
         return dev
 
     async def _fetch_full_device(self, dev: dict[str, Any]) -> dict[str, Any]:
