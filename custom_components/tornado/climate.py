@@ -209,9 +209,9 @@ class TornadoClimateEntity(CoordinatorEntity, ClimateEntity):
         self._attr_preset_mode = PRESET_MODE_NORMAL
 
         # Initialize other attributes
-        self._attr_current_temperature = None
-        self._attr_target_temperature = None
-        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
+        self._attr_native_current_temperature = None
+        self._attr_native_target_temperature = None
+        self._attr_native_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_swing_mode = None
         self._attr_swing_horizontal_mode = None
         self._attr_hvac_action = HVACAction.OFF
@@ -288,8 +288,8 @@ class TornadoClimateEntity(CoordinatorEntity, ClimateEntity):
             self._attr_fan_mode = FAN_MODE_MAP.get(
                 device_params.get("ac_mark", 0), "auto"
             )
-            self._attr_target_temperature = device_params.get("temp", 0) / 10
-            self._attr_current_temperature = device_params.get("envtemp", 0) / 10
+            self._attr_native_target_temperature = device_params.get("temp", 0) / 10
+            self._attr_native_current_temperature = device_params.get("envtemp", 0) / 10
             self._attr_swing_mode = (
                 SWING_ON if device_params.get("ac_vdir", 0) else SWING_OFF
             )
@@ -312,8 +312,8 @@ class TornadoClimateEntity(CoordinatorEntity, ClimateEntity):
                 self._attr_hvac_mode,
                 self._attr_hvac_action,
                 self._attr_fan_mode,
-                self._attr_target_temperature,
-                self._attr_current_temperature,
+                self._attr_native_target_temperature,
+                self._attr_native_current_temperature,
                 self._attr_preset_mode,
             )
 
