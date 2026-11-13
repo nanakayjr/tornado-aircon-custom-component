@@ -662,32 +662,40 @@ class AuxCloudAPI:
 
         Only the power flag is polled first. A unit that is off keeps its last known
         params (1 request); the full data is fetched only when it is on or unknown.
-        If the cloud stays busy after retries, the last known params are reused; with
-        no previous data the error is raised so the coordinator backs off.
+        If the power-only query fails, the full query is tried instead; if the cloud
+        stays busy, the last known params are reused. With no previous data the error
+        is raised so the coordinator backs off.
         """
         endpoint_id = dev["endpointId"]
         last = self._last_params.get(endpoint_id)
+        power: dict[str, Any] | None
         try:
             power = await self.get_device_params(dev, ["pwr"])
         except (RetryError, AuxCloudApiError) as ex:
-            if last is None:
-                raise
             _LOGGER.warning(
-                "Cloud busy for %s, keeping last known state: %s", endpoint_id, ex
+                "Power-only query failed for %s, trying the full query: %s",
+                endpoint_id,
+                ex,
             )
-            dev["params"] = dict(last)
-            cached = self._slow_cache.get(endpoint_id)
-            if cached and "state" in cached[1]:
-                dev["state"] = cached[1]["state"]
-            return dev
-        if last is not None and not power.get("pwr"):
+            power = None
+        if power is not None and last is not None and not power.get("pwr"):
             dev["params"] = {**last, "pwr": 0}
             cached = self._slow_cache.get(endpoint_id)
             if cached and "state" in cached[1]:
                 dev["state"] = cached[1]["state"]
             return dev
 
-        dev = await self._fetch_full_device(dev)
+        try:
+            dev = await self._fetch_full_device(dev)
+        except (RetryError, AuxCloudApiError):
+            if last is None:
+                raise
+            _LOGGER.warning("Cloud busy for %s, keeping last known state", endpoint_id)
+            dev["params"] = dict(last)
+            cached = self._slow_cache.get(endpoint_id)
+            if cached and "state" in cached[1]:
+                dev["state"] = cached[1]["state"]
+            return dev
         if "params" in dev:
             self._last_params[endpoint_id] = dict(dev["params"])
         return dev
